@@ -33,7 +33,7 @@ public class Reproducer {
 	}
 
 	@Test
-	public void testStreaming(TestContext context) {
+	public void testStreamingToFile(TestContext context) {
 		Async async = context.async();
 
 		// First, set up the pump from event bus to file
@@ -42,8 +42,7 @@ public class Reproducer {
 		String path = UUID.randomUUID().toString();
 		vertx.fileSystem().open(path, options, context.asyncAssertSuccess(file -> {
 			MessageConsumer<Buffer> consumer = vertx.eventBus().consumer("address", message -> {
-				Buffer body = (Buffer) message.body();
-				file.write(body);
+				file.write(message.body());
 			});
 
 			MessageBodyConsumer bodyConsumer = new MessageBodyConsumer(consumer);
@@ -73,6 +72,39 @@ public class Reproducer {
 					context.assertTrue(f1.toString().equals(f2.toString()));
 					async.complete();
 				}));
+			}));
+		}));
+	}
+
+	@Test
+	public void testStreamingToMemory(TestContext context) {
+		Async async = context.async();
+
+		// First, set up the pump from event bus to buffer
+		Buffer buffer = Buffer.buffer();
+		vertx.eventBus().<Buffer> consumer("address", message -> {
+			buffer.appendBuffer(message.body());
+		});
+
+		// Next, open file and begin streaming over event bus
+		Future<Void> fileWritten = Future.future();
+		OpenOptions options = new OpenOptions();
+		vertx.fileSystem().open("src/test/resources/file.xml", options, context.asyncAssertSuccess(file -> {
+			MessageProducer<Buffer> sender = vertx.eventBus().sender("address");
+			file.endHandler(u -> {
+				// Wait a little bit after finishing the file read, to give the file writing a chance to catch up
+				vertx.setTimer(1000, unused -> {
+					fileWritten.complete();
+				});
+			});
+			Pump.pump(file, sender).start();
+		}));
+
+		// Finally, compare the contents of the files
+		fileWritten.setHandler(context.asyncAssertSuccess(result -> {
+			vertx.fileSystem().readFile("src/test/resources/file.xml", context.asyncAssertSuccess(file -> {
+				context.assertTrue(file.toString().equals(buffer.toString()));
+				async.complete();
 			}));
 		}));
 	}
