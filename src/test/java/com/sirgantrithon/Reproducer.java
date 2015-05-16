@@ -57,6 +57,7 @@ public class Reproducer {
 			vertx.fileSystem().open("src/test/resources/file.xml", options, context.asyncAssertSuccess(file -> {
 				MessageProducer<Buffer> sender = vertx.eventBus().sender("address");
 				file.endHandler(u -> {
+					// Wait a little bit after finishing the file read, to give the file writing a chance to catch up
 					vertx.setTimer(1000, unused -> {
 						fileWritten.complete();
 					});
